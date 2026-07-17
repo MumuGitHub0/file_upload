@@ -14,5 +14,9 @@ wheels/
 .gemini
 
 # Data directories
-data/files/
-data/chunks/
+
+data/files/*
+data/chunks/*
+
+!data/files/.gitkeep
+!data/chunks/.gitkeep
