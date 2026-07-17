@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, Request, HTTPExc
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.file import get_db
 from app.schemas.upload import (
     UploadInitRequest,
@@ -18,7 +19,7 @@ from app.schemas.upload import (
 from app.services.upload_service import UploadService
 from app.services.download_service import DownloadService
 
-router = APIRouter(prefix="/api/v1", tags=["upload-download"])
+router = APIRouter(prefix=settings.API_PREFIX, tags=["upload-download"])
 
 
 # ========== 上传相关接口 ==========

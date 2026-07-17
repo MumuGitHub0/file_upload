@@ -25,16 +25,16 @@ async def lifespan(app: FastAPI):
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="大文件上传下载服务",
+    title=settings.APP_NAME,
     description="支持分片上传、断点续传、进度追踪的大文件上传下载服务",
-    version="0.1.0",
+    version=settings.APP_VERSION,
     lifespan=lifespan,
 )
 
-# CORS 配置（可选）
+# CORS 配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应该限制来源
+    allow_origins=settings.get_cors_origins_list(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,8 +48,8 @@ app.include_router(upload_router)
 async def root():
     """根路径"""
     return {
-        "message": "大文件上传下载服务",
-        "version": "0.1.0",
+        "message": settings.APP_NAME,
+        "version": settings.APP_VERSION,
         "docs": "/docs",
     }
 
@@ -62,4 +62,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=settings.HOST, port=settings.PORT)

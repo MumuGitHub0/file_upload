@@ -38,15 +38,72 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-配置项说明：
+#### 配置项说明
+
+**必须配置的项**：
+
+| 配置项 | 说明 | 默认值 | 是否必须 |
+|--------|------|--------|----------|
+| STORAGE_BACKEND | 存储后端（local/oss） | local | 是 |
+| CORS_ORIGINS | CORS 允许来源 | * | 生产环境必须修改 |
+| DEBUG | 调试模式 | false | 生产环境必须为 false |
+
+**可选配置的项**：
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| STORAGE_BACKEND | 存储后端（local/oss） | local |
-| LOCAL_STORAGE_PATH | 本地文件存储路径 | ./data/files |
-| LOCAL_CHUNK_PATH | 本地分片临时路径 | ./data/chunks |
+| HOST | 监听地址 | 0.0.0.0 |
+| PORT | 监听端口 | 8000 |
 | CHUNK_SIZE | 分片大小（字节） | 5242880 (5MB) |
 | MAX_FILE_SIZE | 最大文件大小（字节） | 1073741824 (1GB) |
+| ALLOWED_EXTENSIONS | 允许的文件扩展名 | 空（不限制） |
+| LOG_LEVEL | 日志级别 | INFO |
+
+**OSS 配置（STORAGE_BACKEND=oss 时必须）**：
+
+| 配置项 | 说明 | 示例 |
+|--------|------|------|
+| OSS_ENDPOINT | OSS 区域节点 | https://oss-cn-hangzhou.aliyuncs.com |
+| OSS_ACCESS_KEY_ID | AccessKey ID | your-access-key-id |
+| OSS_ACCESS_KEY_SECRET | AccessKey Secret | your-access-key-secret |
+| OSS_BUCKET_NAME | Bucket 名称 | your-bucket-name |
+
+**应用常量（硬编码，不可配置）**：
+
+以下配置项已硬编码在代码中，不需要在 `.env` 中配置：
+
+- APP_NAME: 大文件上传下载服务
+- APP_VERSION: 0.1.0
+- API_PREFIX: /api/v1
+- MAX_CHUNK_SIZE: 52428800 (50MB)
+- MIN_CHUNK_SIZE: 1048576 (1MB)
+
+#### 配置示例
+
+**最小化配置（本地开发）**
+
+```env
+STORAGE_BACKEND=local
+CHUNK_SIZE=5242880
+MAX_FILE_SIZE=1073741824
+```
+
+**生产环境配置示例**
+
+```env
+DEBUG=false
+STORAGE_BACKEND=oss
+OSS_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
+OSS_ACCESS_KEY_ID=your-access-key-id
+OSS_ACCESS_KEY_SECRET=your-access-key-secret
+OSS_BUCKET_NAME=your-bucket-name
+CHUNK_SIZE=10485760
+MAX_FILE_SIZE=10737418240
+ALLOWED_EXTENSIONS=.jpg,.png,.mp4,.pdf
+CORS_ORIGINS=https://example.com,https://api.example.com
+LOG_LEVEL=WARNING
+DATABASE_URL=postgresql://user:password@localhost/filedb
+```
 
 ### 3. 启动服务
 
