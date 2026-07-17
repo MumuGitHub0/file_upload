@@ -8,7 +8,7 @@ from datetime import datetime
 
 from app.models.file import FileMetadata
 from app.schemas.upload import FileInfo, FileListResponse
-from app.storage.local import LocalStorage
+from app.storage import get_storage_backend
 from app.config import settings
 
 
@@ -18,7 +18,7 @@ class DownloadService:
     def __init__(self, db: Session):
         """初始化下载服务"""
         self.db = db
-        self.storage = LocalStorage()
+        self.storage = get_storage_backend()
     
     async def get_file(self, file_id: str, range_header: Optional[str] = None):
         """

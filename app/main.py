@@ -1,11 +1,12 @@
 """
 FastAPI 应用入口
 """
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import upload_router
+from app.api import upload_router, preview_router
 from app.models.file import init_db
 from app.config import settings
 
@@ -19,8 +20,20 @@ async def lifespan(app: FastAPI):
     print(f"[OK] 存储后端: {settings.STORAGE_BACKEND}")
     print(f"[OK] 分片大小: {settings.CHUNK_SIZE // (1024*1024)} MB")
     print(f"[OK] 最大文件: {settings.MAX_FILE_SIZE // (1024*1024)} MB")
+
+    # 启动清理任务调度器
+    cleanup_task = None
+    if settings.UPLOAD_EXPIRE_HOURS > 0:
+        from app.services.cleanup_service import start_cleanup_scheduler
+        cleanup_task = asyncio.create_task(start_cleanup_scheduler())
+        print(f"[OK] 清理任务已启动，过期时间: {settings.UPLOAD_EXPIRE_HOURS} 小时")
+
     yield
-    # 关闭时执行（如有需要可添加清理代码）
+
+    # 关闭时执行
+    if cleanup_task:
+        cleanup_task.cancel()
+        print("[OK] 清理任务已停止")
 
 
 # 创建 FastAPI 应用
@@ -42,6 +55,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(upload_router)
+app.include_router(preview_router)
 
 
 @app.get("/", tags=["root"])

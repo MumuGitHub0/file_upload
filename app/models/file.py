@@ -15,7 +15,7 @@ Base = declarative_base()
 class FileMetadata(Base):
     """文件元数据模型"""
     __tablename__ = "file_metadata"
-    
+
     id = Column(String(36), primary_key=True)  # UUID
     filename = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)
@@ -29,6 +29,18 @@ class FileMetadata(Base):
     storage_path = Column(String(512), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 病毒扫描相关字段
+    scan_status = Column(String(20), default="pending")  # pending/clean/infected
+    scan_result = Column(Text, default="")  # 扫描结果详情
+
+    # 文件过期相关字段
+    expires_at = Column(DateTime, nullable=True)  # 过期时间（None 表示永不过期）
+
+    # 回调通知相关字段
+    callback_url = Column(String(512), nullable=True)  # 回调地址（可覆盖全局配置）
+    callback_status = Column(String(20), default="pending")  # pending/success/failed
+    callback_attempts = Column(Integer, default=0)  # 回调尝试次数
     
     def get_uploaded_chunks(self) -> List[int]:
         """获取已上传分片列表"""

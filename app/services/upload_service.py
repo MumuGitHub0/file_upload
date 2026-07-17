@@ -15,8 +15,9 @@ from app.schemas.upload import (
     UploadProgressResponse,
     UploadCompleteResponse,
 )
-from app.storage.local import LocalStorage
+from app.storage import get_storage_backend
 from app.config import settings
+from app.utils.validators import validate_file_extension
 
 
 class UploadService:
@@ -25,15 +26,15 @@ class UploadService:
     def __init__(self, db: Session):
         """初始化上传服务"""
         self.db = db
-        self.storage = LocalStorage()  # 根据配置选择存储后端
+        self.storage = get_storage_backend()
     
     def init_upload(self, request: UploadInitRequest) -> UploadInitResponse:
         """
         初始化上传任务
-        
+
         Args:
             request: 上传初始化请求
-        
+
         Returns:
             UploadInitResponse: 包含 upload_id 和分片信息
         """
@@ -43,7 +44,16 @@ class UploadService:
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"文件大小超过限制（最大 {settings.MAX_FILE_SIZE // (1024*1024)} MB）"
             )
-        
+
+        # 验证文件类型
+        allowed_extensions = settings.get_allowed_extensions()
+        is_valid, error_msg = validate_file_extension(request.filename, allowed_extensions)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+
         # 检查是否已存在相同文件（去重）
         existing_file = self.db.query(FileMetadata).filter(
             FileMetadata.file_hash == request.file_hash,
@@ -77,7 +87,13 @@ class UploadService:
         # 创建新的上传任务
         upload_id = str(uuid.uuid4())
         chunk_count = math.ceil(request.file_size / settings.CHUNK_SIZE)
-        
+
+        # 计算过期时间
+        expires_at = None
+        if settings.FILE_DEFAULT_EXPIRE_DAYS > 0:
+            from datetime import timedelta
+            expires_at = datetime.utcnow() + timedelta(days=settings.FILE_DEFAULT_EXPIRE_DAYS)
+
         file_metadata = FileMetadata(
             id=str(uuid.uuid4()),
             filename=request.filename,
@@ -87,8 +103,9 @@ class UploadService:
             chunk_size=settings.CHUNK_SIZE,
             chunk_count=chunk_count,
             status="uploading",
-            storage_backend="local",
-            storage_path=self.storage.get_file_path(upload_id, request.filename)
+            storage_backend=settings.STORAGE_BACKEND,
+            storage_path=self.storage.get_file_path(upload_id, request.filename),
+            expires_at=expires_at
         )
         
         self.db.add(file_metadata)
@@ -201,15 +218,49 @@ class UploadService:
             file_metadata.id,
             file_metadata.filename
         )
-        
+
+        # 病毒扫描（如果启用）
+        if settings.VIRUS_SCAN_ENABLED:
+            from app.services.scan_service import get_scan_service
+            scan_service = get_scan_service()
+            if scan_service:
+                scan_result = scan_service.scan_file(final_path)
+                file_metadata.scan_status = "clean" if scan_result.is_clean else "infected"
+                file_metadata.scan_result = scan_result.message
+                if not scan_result.is_clean:
+                    # 扫描到病毒，标记文件为失败状态
+                    file_metadata.status = "failed"
+                    self.db.commit()
+                    await self.storage.cleanup_chunks(upload_id)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"文件包含恶意内容: {scan_result.message}"
+                    )
+
         # 更新数据库
         file_metadata.status = "completed"
         file_metadata.storage_path = final_path
         self.db.commit()
-        
+
         # 清理临时分片
         await self.storage.cleanup_chunks(upload_id)
-        
+
+        # 发送回调通知
+        if settings.UPLOAD_CALLBACK_URL:
+            from app.services.callback_service import get_callback_service
+            callback_svc = get_callback_service()
+            if callback_svc:
+                download_url = f"/download/{file_metadata.id}"
+                await callback_svc.send_upload_complete_callback(
+                    upload_id=upload_id,
+                    file_id=file_metadata.id,
+                    filename=file_metadata.filename,
+                    file_size=file_metadata.file_size,
+                    download_url=download_url
+                )
+                file_metadata.callback_status = "success"
+                self.db.commit()
+
         return UploadCompleteResponse(
             file_id=file_metadata.id,
             url=f"/download/{file_metadata.id}",

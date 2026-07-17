@@ -3,7 +3,7 @@
 """
 import os
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -54,7 +54,30 @@ class Settings:
     
     # ========== 运维配置（环境变量）==========
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")  # DEBUG, INFO, WARNING, ERROR
-    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/metadata.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL") or f"sqlite:///{DATA_DIR.as_posix()}/metadata.db"
+
+    # ========== 清理配置（环境变量）==========
+    UPLOAD_EXPIRE_HOURS: int = int(os.getenv("UPLOAD_EXPIRE_HOURS", "24"))  # 未完成上传过期时间（小时）
+    CLEANUP_INTERVAL_MINUTES: int = int(os.getenv("CLEANUP_INTERVAL_MINUTES", "60"))  # 清理间隔（分钟）
+
+    # ========== 病毒扫描配置（环境变量）==========
+    VIRUS_SCAN_ENABLED: bool = os.getenv("VIRUS_SCAN_ENABLED", "false").lower() == "true"
+    VIRUS_SCAN_ENGINE: str = os.getenv("VIRUS_SCAN_ENGINE", "clamav")  # clamav 或 api
+    CLAMAV_SOCKET: str = os.getenv("CLAMAV_SOCKET", "/var/run/clamav/clamd.ctl")  # ClamAV socket 路径
+    VIRUS_SCAN_API_URL: Optional[str] = os.getenv("VIRUS_SCAN_API_URL")  # 外部扫描 API 地址
+
+    # ========== 文件过期配置（环境变量）==========
+    FILE_DEFAULT_EXPIRE_DAYS: int = int(os.getenv("FILE_DEFAULT_EXPIRE_DAYS", "0"))  # 默认过期天数（0 表示永不过期）
+
+    # ========== 回调通知配置（环境变量）==========
+    UPLOAD_CALLBACK_URL: Optional[str] = os.getenv("UPLOAD_CALLBACK_URL")  # 回调地址
+    UPLOAD_CALLBACK_TIMEOUT: int = int(os.getenv("UPLOAD_CALLBACK_TIMEOUT", "30"))  # 超时时间（秒）
+    UPLOAD_CALLBACK_RETRIES: int = int(os.getenv("UPLOAD_CALLBACK_RETRIES", "3"))  # 重试次数
+
+    # ========== 预览配置（环境变量）==========
+    PREVIEW_ENABLED: bool = os.getenv("PREVIEW_ENABLED", "true").lower() == "true"
+    PREVIEW_SUPPORTED_TYPES: str = os.getenv("PREVIEW_SUPPORTED_TYPES", ".jpg,.jpeg,.png,.gif,.webp,.bmp,.mp4,.webm")
+    THUMBNAIL_SIZE: str = os.getenv("THUMBNAIL_SIZE", "200x200")  # 缩略图尺寸
     
     def __init__(self):
         """初始化配置，创建必要的目录"""
@@ -86,6 +109,20 @@ class Settings:
     def validate_chunk_size(self) -> bool:
         """验证分片大小是否在合理范围内"""
         return self.MIN_CHUNK_SIZE <= self.CHUNK_SIZE <= self.MAX_CHUNK_SIZE
+
+    def get_preview_supported_types(self) -> List[str]:
+        """获取支持预览的文件类型列表"""
+        if not self.PREVIEW_SUPPORTED_TYPES:
+            return []
+        return [ext.strip().lower() for ext in self.PREVIEW_SUPPORTED_TYPES.split(",")]
+
+    def get_thumbnail_size(self) -> Tuple[int, int]:
+        """获取缩略图尺寸"""
+        try:
+            width, height = self.THUMBNAIL_SIZE.lower().split("x")
+            return int(width), int(height)
+        except Exception:
+            return 200, 200
 
 
 # 全局配置实例
