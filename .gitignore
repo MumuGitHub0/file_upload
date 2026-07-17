@@ -12,3 +12,7 @@ wheels/
 .idea
 .trae
 .gemini
+
+# Data directories
+data/files/
+data/chunks/
