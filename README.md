@@ -7,16 +7,23 @@
 - **分片上传**: 将大文件分割成小块上传，提高稳定性和成功率
 - **断点续传**: 上传中断后可从断点继续，无需重新上传
 - **进度追踪**: 实时返回上传进度百分比
-- **双存储支持**: 本地文件系统 + 对象存储（OSS/S3），可通过配置切换
+- **双存储支持**: 本地文件系统 + 阿里云 OSS，可通过配置切换
 - **文件去重**: 相同文件哈希只存储一次
 - **分段下载**: 支持 Range 请求头实现分段下载
+- **文件类型验证**: 支持扩展名验证和 Magic Number 内容检测
+- **病毒扫描集成**: 支持 ClamAV 和外部 API 扫描引擎
+- **自动清理**: 未完成上传任务和过期文件自动清理
+- **回调通知**: 上传完成后支持 HTTP 回调通知
+- **在线预览**: 图片和视频文件在线预览及缩略图生成
 
 ## 技术栈
 
 - **框架**: FastAPI
-- **数据库**: SQLite（通过 SQLAlchemy ORM）
+- **数据库**: SQLite（通过 SQLAlchemy ORM，支持 PostgreSQL/MySQL）
 - **异步文件操作**: aiofiles
 - **配置管理**: python-dotenv
+- **对象存储**: oss2（阿里云 OSS SDK）
+- **图片处理**: Pillow（可选）
 
 ## 快速开始
 
@@ -28,6 +35,12 @@ uv sync
 
 # 包含测试客户端的开发环境依赖
 uv sync --extra dev
+
+# 包含图片预览功能的依赖
+uv sync --extra preview
+
+# 安装所有可选依赖
+uv sync --all-extras
 ```
 
 ### 2. 配置环境变量
@@ -48,7 +61,7 @@ cp .env.example .env
 | CORS_ORIGINS | CORS 允许来源 | * | 生产环境必须修改 |
 | DEBUG | 调试模式 | false | 生产环境必须为 false |
 
-**可选配置的项**：
+**上传配置**：
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -68,15 +81,38 @@ cp .env.example .env
 | OSS_ACCESS_KEY_SECRET | AccessKey Secret | your-access-key-secret |
 | OSS_BUCKET_NAME | Bucket 名称 | your-bucket-name |
 
-**应用常量（硬编码，不可配置）**：
+**清理配置**：
 
-以下配置项已硬编码在代码中，不需要在 `.env` 中配置：
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| UPLOAD_EXPIRE_HOURS | 未完成上传过期时间（小时） | 24 |
+| CLEANUP_INTERVAL_MINUTES | 清理任务间隔（分钟） | 60 |
+| FILE_DEFAULT_EXPIRE_DAYS | 文件默认过期天数（0=永不过期） | 0 |
 
-- APP_NAME: 大文件上传下载服务
-- APP_VERSION: 0.1.0
-- API_PREFIX: /api/v1
-- MAX_CHUNK_SIZE: 52428800 (50MB)
-- MIN_CHUNK_SIZE: 1048576 (1MB)
+**病毒扫描配置**：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| VIRUS_SCAN_ENABLED | 是否启用病毒扫描 | false |
+| VIRUS_SCAN_ENGINE | 扫描引擎（clamav/api） | clamav |
+| CLAMAV_SOCKET | ClamAV socket 路径 | /var/run/clamav/clamd.ctl |
+| VIRUS_SCAN_API_URL | 外部扫描 API 地址 | - |
+
+**回调通知配置**：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| UPLOAD_CALLBACK_URL | 回调地址 | - |
+| UPLOAD_CALLBACK_TIMEOUT | 回调超时时间（秒） | 30 |
+| UPLOAD_CALLBACK_RETRIES | 回调重试次数 | 3 |
+
+**预览配置**：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| PREVIEW_ENABLED | 是否启用预览功能 | true |
+| PREVIEW_SUPPORTED_TYPES | 支持预览的文件类型 | .jpg,.jpeg,.png,.gif,.webp,.bmp,.mp4,.webm |
+| THUMBNAIL_SIZE | 缩略图尺寸 | 200x200 |
 
 #### 配置示例
 
@@ -103,6 +139,20 @@ ALLOWED_EXTENSIONS=.jpg,.png,.mp4,.pdf
 CORS_ORIGINS=https://example.com,https://api.example.com
 LOG_LEVEL=WARNING
 DATABASE_URL=postgresql://user:password@localhost/filedb
+
+# 清理配置
+UPLOAD_EXPIRE_HOURS=24
+FILE_DEFAULT_EXPIRE_DAYS=30
+
+# 病毒扫描
+VIRUS_SCAN_ENABLED=true
+VIRUS_SCAN_ENGINE=clamav
+
+# 回调通知
+UPLOAD_CALLBACK_URL=https://example.com/callback
+
+# 预览
+PREVIEW_ENABLED=true
 ```
 
 ### 3. 启动服务
@@ -244,6 +294,26 @@ Range: bytes=0-1023
 }
 ```
 
+### 预览接口
+
+#### 1. 获取文件预览
+
+**GET** `/api/v1/preview/{file_id}`
+
+支持图片和视频文件的在线预览。
+
+响应：文件流（根据文件类型返回对应 MIME 类型）
+
+#### 2. 获取缩略图
+
+**GET** `/api/v1/thumbnail/{file_id}`
+
+查询参数：
+- `width`: 缩略图宽度（可选）
+- `height`: 缩略图高度（可选）
+
+响应：JPEG 图片流
+
 ## 使用示例
 
 ### Python 客户端示例
@@ -266,7 +336,7 @@ def upload_large_file(file_path, api_base="http://localhost:8000/api/v1"):
     file_path = Path(file_path)
     file_size = file_path.stat().st_size
     file_hash = calculate_file_hash(file_path)
-    
+
     # 1. 初始化上传
     init_resp = requests.post(f"{api_base}/upload/init", json={
         "filename": file_path.name,
@@ -276,11 +346,11 @@ def upload_large_file(file_path, api_base="http://localhost:8000/api/v1"):
     init_data = init_resp.json()
     upload_id = init_data["upload_id"]
     chunk_size = init_data["chunk_size"]
-    
+
     print(f"Upload ID: {upload_id}")
     print(f"Chunk size: {chunk_size}")
     print(f"Already uploaded: {init_data['uploaded_chunks']}")
-    
+
     # 2. 上传分片
     with open(file_path, "rb") as f:
         chunk_index = 0
@@ -288,12 +358,12 @@ def upload_large_file(file_path, api_base="http://localhost:8000/api/v1"):
             chunk_data = f.read(chunk_size)
             if not chunk_data:
                 break
-            
+
             # 跳过已上传的分片
             if chunk_index in init_data["uploaded_chunks"]:
                 chunk_index += 1
                 continue
-            
+
             files = {"chunk_data": chunk_data}
             data = {"chunk_index": chunk_index}
             requests.post(
@@ -301,20 +371,20 @@ def upload_large_file(file_path, api_base="http://localhost:8000/api/v1"):
                 files=files,
                 data=data
             )
-            
+
             # 查询进度
             progress_resp = requests.get(f"{api_base}/upload/progress/{upload_id}")
             progress = progress_resp.json()["progress"]
             print(f"Progress: {progress:.1f}%")
-            
+
             chunk_index += 1
-    
+
     # 3. 完成上传
     complete_resp = requests.post(f"{api_base}/upload/complete/{upload_id}")
     result = complete_resp.json()
     print(f"Upload complete! File ID: {result['file_id']}")
     print(f"Download URL: {result['url']}")
-    
+
     return result
 
 # 使用示例
@@ -377,6 +447,15 @@ curl -O "http://localhost:8000/api/v1/download/{file_id}"
 curl -H "Range: bytes=0-1023" -O "http://localhost:8000/api/v1/download/{file_id}"
 ```
 
+#### 获取预览
+```bash
+# 获取文件预览
+curl -O "http://localhost:8000/api/v1/preview/{file_id}"
+
+# 获取缩略图
+curl -O "http://localhost:8000/api/v1/thumbnail/{file_id}"
+```
+
 ## 项目结构
 
 ```
@@ -393,19 +472,25 @@ curl -H "Range: bytes=0-1023" -O "http://localhost:8000/api/v1/download/{file_id
 │   │   └── upload.py        # Pydantic 模型（请求/响应）
 │   ├── api/
 │   │   ├── __init__.py
-│   │   └── upload.py        # 上传下载路由
+│   │   ├── upload.py        # 上传下载路由
+│   │   └── preview.py       # 预览路由
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── upload_service.py      # 上传业务逻辑
-│   │   └── download_service.py    # 下载业务逻辑
+│   │   ├── download_service.py    # 下载业务逻辑
+│   │   ├── cleanup_service.py     # 清理服务
+│   │   ├── scan_service.py        # 病毒扫描服务
+│   │   ├── callback_service.py    # 回调通知服务
+│   │   └── preview_service.py     # 预览服务
 │   ├── storage/
 │   │   ├── __init__.py
 │   │   ├── base.py          # 存储抽象基类
 │   │   ├── local.py         # 本地存储实现
-│   │   └── oss.py           # 对象存储实现（待实现）
+│   │   └── oss.py           # 阿里云 OSS 存储
 │   └── utils/
 │       ├── __init__.py
-│       └── hash.py          # 文件哈希计算工具
+│       ├── hash.py          # 文件哈希计算工具
+│       └── validators.py    # 文件验证工具
 ├── tests/                   # 测试客户端（开发依赖）
 │   ├── client/
 │   │   ├── __init__.py
@@ -429,23 +514,34 @@ curl -H "Range: bytes=0-1023" -O "http://localhost:8000/api/v1/download/{file_id
 - 文件大小限制（默认 1GB）
 - 文件名清理（防止路径遍历攻击）
 - 分片索引验证
-- 未完成上传任务清理（待实现）
+- 文件类型验证（扩展名 + Magic Number）
+- 病毒扫描集成（可选）
+- 未完成上传任务自动清理
+- 过期文件自动清理
 
 ## 性能优化建议
 
 1. **分片大小**: 根据网络状况调整，建议 5-10MB
 2. **并发上传**: 客户端可并行上传多个分片
-3. **对象存储**: 生产环境建议使用 OSS/S3
+3. **对象存储**: 生产环境建议使用 OSS
 4. **缓存**: 使用 Redis 缓存上传状态（可选）
+5. **数据库**: 生产环境建议使用 PostgreSQL 或 MySQL
 
-## 扩展功能（待实现）
+## 功能清单
 
-- [ ] 对象存储（OSS/S3）支持
-- [ ] 文件类型验证
-- [ ] 病毒扫描集成
-- [ ] 文件过期自动清理
-- [ ] 上传回调通知
-- [ ] 图片/视频在线预览
+- [x] 分片上传
+- [x] 断点续传
+- [x] 进度追踪
+- [x] 本地存储
+- [x] 阿里云 OSS 存储
+- [x] 文件去重
+- [x] 分段下载
+- [x] 未完成上传任务清理
+- [x] 文件类型验证
+- [x] 病毒扫描集成
+- [x] 文件过期自动清理
+- [x] 上传回调通知
+- [x] 图片/视频在线预览
 
 ## 许可证
 
