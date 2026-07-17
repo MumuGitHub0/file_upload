@@ -1,6 +1,7 @@
 """
 FastAPI 应用入口
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,11 +10,25 @@ from app.models.file import init_db
 from app.config import settings
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时执行
+    init_db()
+    print(f"[OK] 数据库已初始化")
+    print(f"[OK] 存储后端: {settings.STORAGE_BACKEND}")
+    print(f"[OK] 分片大小: {settings.CHUNK_SIZE // (1024*1024)} MB")
+    print(f"[OK] 最大文件: {settings.MAX_FILE_SIZE // (1024*1024)} MB")
+    yield
+    # 关闭时执行（如有需要可添加清理代码）
+
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="大文件上传下载服务",
     description="支持分片上传、断点续传、进度追踪的大文件上传下载服务",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS 配置（可选）
@@ -27,16 +42,6 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(upload_router)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时初始化数据库"""
-    init_db()
-    print(f"[OK] 数据库已初始化")
-    print(f"[OK] 存储后端: {settings.STORAGE_BACKEND}")
-    print(f"[OK] 分片大小: {settings.CHUNK_SIZE // (1024*1024)} MB")
-    print(f"[OK] 最大文件: {settings.MAX_FILE_SIZE // (1024*1024)} MB")
 
 
 @app.get("/", tags=["root"])
