@@ -23,11 +23,11 @@
 ### 1. 安装依赖
 
 ```bash
-# 使用 uv（推荐）
+# 生产环境依赖
 uv sync
 
-# 或使用 pip
-pip install -r requirements.txt
+# 包含测试客户端的开发环境依赖
+uv sync --extra dev
 ```
 
 ### 2. 配置环境变量
@@ -321,6 +321,32 @@ def upload_large_file(file_path, api_base="http://localhost:8000/api/v1"):
 upload_large_file("large_file.mp4")
 ```
 
+### 测试客户端
+
+项目内置了命令行测试客户端，用于快速测试 API 功能。
+
+**安装开发依赖**：
+```bash
+uv sync --extra dev
+```
+
+**使用示例**：
+```bash
+# 上传文件
+uv run python tests/main.py upload large_file.mp4
+
+# 列出文件
+uv run python tests/main.py list
+
+# 下载文件
+uv run python tests/main.py download <file_id>
+
+# 查看帮助
+uv run python tests/main.py --help
+```
+
+详细使用说明请参见 [tests/README.md](tests/README.md)。
+
 ### cURL 示例
 
 #### 初始化上传
@@ -380,6 +406,14 @@ curl -H "Range: bytes=0-1023" -O "http://localhost:8000/api/v1/download/{file_id
 │   └── utils/
 │       ├── __init__.py
 │       └── hash.py          # 文件哈希计算工具
+├── tests/                   # 测试客户端（开发依赖）
+│   ├── client/
+│   │   ├── __init__.py
+│   │   ├── api.py           # API 客户端封装
+│   │   ├── downloader.py    # 文件下载器
+│   │   └── uploader.py      # 文件上传器
+│   ├── main.py              # CLI 入口
+│   └── README.md            # 客户端使用文档
 ├── data/                    # 数据目录（自动创建）
 │   ├── files/               # 上传文件存储目录
 │   ├── chunks/              # 临时分片存储目录
